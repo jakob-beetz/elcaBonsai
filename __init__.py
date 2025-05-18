@@ -13,9 +13,35 @@
 
 import bpy
 from bpy.types import Operator, Panel
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 from bpy.app.handlers import persistent
 import traceback
+import os
+import tempfile
+from pathlib import Path
+
+print("\n[eLCA] Initializing eLCA Bonsai integration...")
+
+# First, ensure dependencies are installed
+from . import dependencies
+dependencies_installed = dependencies.ensure_dependencies()
+
+# Only import our modules if dependencies are installed
+if dependencies_installed:
+    # Import our modules
+    from . import elca_parser
+    from . import ifc_library_creator
+else:
+    # Create dummy modules for graceful failure
+    class DummyModule:
+        pass
+    
+    elca_parser = DummyModule()
+    elca_parser.ELCAComponentExtractor = lambda *args, **kwargs: None
+    
+    ifc_library_creator = DummyModule()
+    ifc_library_creator.create_ifc_library_from_bauteil_elements = lambda *args, **kwargs: None
+    ifc_library_creator.attach_library_to_project = lambda *args, **kwargs: None
 
 bl_info = {
     "name": "Elca Bonsai",
@@ -27,8 +53,6 @@ bl_info = {
     "warning": "",
     "category": "Generic",
 }
-
-print("\n[eLCA] Initializing eLCA Bonsai integration...")
 
 class ELCA_OT_LoadProject(Operator):
     """Load eLCA project file"""
@@ -55,28 +79,107 @@ class ELCA_OT_LoadProject(Operator):
         return {'RUNNING_MODAL'}
 
 class ELCA_OT_LoadResults(Operator):
-    """Load eLCA results"""
+    """Load eLCA results from HTML file and create IFC material library"""
     bl_idname = "elca.load_results"
     bl_label = "Load eLCA Results"
     bl_options = {'REGISTER', 'UNDO'}
     
     filepath: StringProperty(
         name="File Path",
-        description="Path to eLCA results file",
+        description="Path to eLCA results HTML file",
         default="",
         subtype='FILE_PATH'
     )
     
+    create_library: BoolProperty(
+        name="Create IFC Library",
+        description="Create an IFC material library from the results",
+        default=True
+    )
+    
+    attach_to_project: BoolProperty(
+        name="Attach to Project",
+        description="Attach the created library to the current IFC project",
+        default=False
+    )
+    
     def execute(self, context):
-        print(f"[eLCA] Loading eLCA results from: {self.filepath}")
-        self.report({'INFO'}, f"Loading eLCA results from: {self.filepath}")
-        # TODO: Implement actual loading functionality
-        return {'FINISHED'}
+        if not dependencies_installed:
+            self.report({'ERROR'}, "Required dependencies are not installed. Check the console for details.")
+            return {'CANCELLED'}
+            
+        try:
+            print(f"[eLCA] Loading eLCA results from: {self.filepath}")
+            
+            # Extract components from HTML file
+            extractor = elca_parser.ELCAComponentExtractor(self.filepath)
+            bauteil_elements = extractor.extract_bauteil_elements()
+            
+            # Report the number of elements found
+            num_elements = len(bauteil_elements)
+            num_components = sum(len(element.components) for element in bauteil_elements)
+            
+            self.report({'INFO'}, f"Extracted {num_elements} building elements with {num_components} components")
+            print(f"[eLCA] Extracted {num_elements} building elements with {num_components} components")
+            
+            # Create IFC library if requested
+            if self.create_library and num_elements > 0:
+                # Create output path in same directory as input file
+                input_path = Path(self.filepath)
+                output_path = input_path.with_suffix('.ifc')
+                
+                # Create the IFC library
+                ifc_file = ifc_library_creator.create_ifc_library_from_bauteil_elements(
+                    bauteil_elements, str(output_path))
+                
+                self.report({'INFO'}, f"Created IFC material library at {output_path}")
+                print(f"[eLCA] Created IFC material library at {output_path}")
+                
+                # Attach to project if requested
+                if self.attach_to_project:
+                    # TODO: Get the current IFC project path
+                    # For now, we'll just use a dummy path
+                    project_path = context.scene.BIMProperties.ifc_file
+                    
+                    # Attach the library to the project
+                    ifc_library_creator.attach_library_to_project(project_path, str(output_path))
+                    
+                    self.report({'INFO'}, f"Attached library to project at {project_path}")
+                    print(f"[eLCA] Attached library to project at {project_path}")
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Error processing eLCA results: {str(e)}")
+            print(f"[eLCA] Error processing eLCA results: {str(e)}")
+            print(traceback.format_exc())
+            return {'CANCELLED'}
     
     def invoke(self, context, event):
         print("[eLCA] Opening file browser for eLCA results selection")
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
+class ELCA_OT_InstallDependencies(Operator):
+    """Install required dependencies for eLCA integration"""
+    bl_idname = "elca.install_dependencies"
+    bl_label = "Install Dependencies"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        try:
+            success = dependencies.ensure_dependencies()
+            if success:
+                self.report({'INFO'}, "All dependencies successfully installed")
+                return {'FINISHED'}
+            else:
+                self.report({'ERROR'}, "Failed to install some dependencies. Check the console for details.")
+                return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Error installing dependencies: {str(e)}")
+            print(f"[eLCA] Error installing dependencies: {str(e)}")
+            print(traceback.format_exc())
+            return {'CANCELLED'}
 
 # Create our own panel as a fallback
 class ELCA_PT_Panel(Panel):
@@ -93,13 +196,18 @@ class ELCA_PT_Panel(Panel):
         box = layout.box()
         box.label(text="eLCA Integration", icon='FILE_REFRESH')
         
-        box.label(text="Load eLCA project and results files:")
-        
-        row = box.row()
-        row.operator("elca.load_project", text="Load Project", icon='IMPORT')
-        
-        row = box.row()
-        row.operator("elca.load_results", text="Load Results", icon='SPREADSHEET')
+        # Show dependency status
+        if not dependencies_installed:
+            box.label(text="Dependencies not installed", icon='ERROR')
+            box.operator("elca.install_dependencies", icon='PACKAGE')
+        else:
+            box.label(text="Load eLCA project and results files:")
+            
+            row = box.row()
+            row.operator("elca.load_project", text="Load Project", icon='IMPORT')
+            
+            row = box.row()
+            row.operator("elca.load_results", text="Load Results", icon='SPREADSHEET')
 
 # Store original draw functions
 _original_draw_functions = {}
@@ -107,21 +215,26 @@ _original_draw_functions = {}
 # Draw function for the BIM panel
 def draw_elca_ui(self, context):
     try:
-        print(f"[eLCA] Drawing eLCA UI in {self.__class__.__name__}")
+        # print(f"[eLCA] Drawing eLCA UI in {self.__class__.__name__}")
         layout = self.layout
         
         box = layout.box()
         box.label(text="eLCA Integration", icon='FILE_REFRESH')
         
-        box.label(text="Load eLCA project and results files:")
+        # Show dependency status
+        if not dependencies_installed:
+            box.label(text="Dependencies not installed", icon='ERROR')
+            box.operator("elca.install_dependencies", icon='PACKAGE')
+        else:
+            box.label(text="Load eLCA project and results files:")
+            
+            row = box.row()
+            row.operator("elca.load_project", text="Load Project", icon='IMPORT')
+            
+            row = box.row()
+            row.operator("elca.load_results", text="Load Results", icon='SPREADSHEET')
         
-        row = box.row()
-        row.operator("elca.load_project", text="Load Project", icon='IMPORT')
-        
-        row = box.row()
-        row.operator("elca.load_results", text="Load Results", icon='SPREADSHEET')
-        
-        print(f"[eLCA] Successfully drew UI in {self.__class__.__name__}")
+        # print(f"[eLCA] Successfully drew UI in {self.__class__.__name__}")
     except Exception as e:
         print(f"[eLCA] Error in draw_elca_ui: {e}")
         print(traceback.format_exc())
@@ -156,9 +269,9 @@ def load_handler(dummy):
     
     # List all panel classes for debugging
     print("[eLCA] Available Panel classes:")
-    for i, cls in enumerate(bpy.types.Panel.__subclasses__()):
-        if hasattr(cls, '__module__'):
-            print(f"  {i+1}. {cls.__module__}.{cls.__name__}")
+    # for i, cls in enumerate(bpy.types.Panel.__subclasses__()):
+    #     if hasattr(cls, '__module__'):
+    #         print(f"  {i+1}. {cls.__module__}.{cls.__name__}")
     
     # Target panel classes to try
     target_panel_classes = [
