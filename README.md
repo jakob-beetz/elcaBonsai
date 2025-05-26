@@ -13,7 +13,7 @@ Ermöglicht den Import von Projekt- und Ergebnissdateien des BBSR Bauteileditors
 
 ## Voraussetzungen
 - [Bonsai](https://bonsai.org) Version 0.8.3
-- Aaccount auf dem BBSR [Bauteileditor](https://bauteleditor.de)
+- Kostenlosen Login für den BBSR [Bauteileditor](https://bauteleditor.de)
 
 
 ## Installation
