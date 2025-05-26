@@ -18,20 +18,30 @@ Ermöglicht den Import von Projekt- und Ergebnissdateien des BBSR Bauteileditors
 
 ## Installation
 Installation des elcaBonsai-Werkzeugs erfolgt das Blender-Addon System. 
-Die jeweils letzte Verion kann aus dem Realese-Ordner des [elcaBonsai GitHub Repositories] als .zip Datei heruntergeladen werden.
+Die jeweils letzte Verion kann aus dem Release-Ordner des [elcaBonsai GitHub Repositories] als .zip Datei heruntergeladen werden.
+
+![](img/elca_addon_install_screen.png)
+
+Wenn das Addon installiert ist, finden sich die beiden folgenden neuen Buttons im Material-Panel von IFC Projekten:
+![](img/ecla_addon_in_material_panel.png)    
+
 
 ## Schnellstart
+Hertuntergeladene eLCA Projektdateien können über den Button "Import eLCA Projekt" importiert werden.
+Die Massenbilanzen können über den Button "Import eLCA Ergebnis" importiert werden.
+
 
 ## Dokumentation
 
 ## Beispiele
-Anwendungsbeispiele mit Code und Erklärungen.
 
 
 ## Mitwirken
 Pull Requests und Fehlermeldungen sind sehr willkommen
 
+
 ## Lizenz
+
 LGPL v 3.0, matching Bonsai license
 
 ## Kontakt und Hilfe
