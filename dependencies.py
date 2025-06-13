@@ -71,7 +71,7 @@ def install_and_import(package_name, import_name=None):
             return module
             
         except Exception as e:
-            print(f"[eLCA] Error installing {package_name}: {str(e)}")
+            print(f"[eLCA] Error installing package {package_name} using {import_name} as import name: {str(e)}")
             print(traceback.format_exc())
             return None
 
@@ -84,7 +84,7 @@ def ensure_dependencies():
     
     # List of required packages (package_name, import_name)
     required_packages = [
-        ("beautifulsoup4", "beautifulsoup4"),
+        ("beautifulsoup4", "bs4"),
         ("pandas", "pandas"),
         ("ifcopenshell", "ifcopenshell"),
     ]
