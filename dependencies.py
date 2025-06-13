@@ -19,13 +19,19 @@ def get_site_packages_path():
     return site_packages_path
 
 def fix_python_path():
-    """Add site-packages to Python path if not already there"""
+    # Blender's site-packages path (example for Blender 4.4 on macOS)
+    blender_site_packages = "/Applications/Blender.app/Contents/Resources/4.4/python/lib/python3.11/site-packages"
+
+    # Add Blender's site-packages path first
+    if blender_site_packages not in sys.path:
+        sys.path.append(blender_site_packages)
+        print(f"[eLCA] Added Blender site-packages: {blender_site_packages}")
+
+    # Optionally keep user site-packages too
     site_packages_path = get_site_packages_path()
     if site_packages_path not in sys.path:
         sys.path.append(site_packages_path)
-        print(f"[eLCA] Added {site_packages_path} to Python path")
-    else:
-        print(f"[eLCA] {site_packages_path} already in Python path")
+        print(f"[eLCA] Added user site-packages: {site_packages_path}")
 
 def install_and_import(package_name, import_name=None):
     """
@@ -59,9 +65,12 @@ def install_and_import(package_name, import_name=None):
             subprocess.check_call([python_executable, "-m", "ensurepip", "--upgrade"], 
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            # Install the package
-            subprocess.check_call([python_executable, "-m", "pip", "install", package_name, "--user"],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Install the package - don't use --user flag on macOS
+            install_cmd = [python_executable, "-m", "pip", "install", package_name]
+            if sys.platform != "darwin":  # Not macOS
+                install_cmd.append("--user")
+            
+            subprocess.check_call(install_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             print(f"[eLCA] Successfully installed {package_name}")
             
