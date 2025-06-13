@@ -84,7 +84,7 @@ def ensure_dependencies():
     
     # List of required packages (package_name, import_name)
     required_packages = [
-        ("beautifulsoup4", "bs4"),
+        ("beautifulsoup4", "beautifulsoup4"),
         ("pandas", "pandas"),
         ("ifcopenshell", "ifcopenshell"),
     ]
