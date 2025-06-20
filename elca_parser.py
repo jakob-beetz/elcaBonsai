@@ -1,6 +1,7 @@
 # eLCA HTML Parser Module
 from bs4 import BeautifulSoup
 import pandas as pd
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Union
 from pathlib import Path
@@ -22,17 +23,36 @@ class BauteilElement:
 class ELCAComponentExtractor:
     """Extracts components and their UUIDs from ELCA HTML reports."""
     
-    def __init__(self, html_path: Union[str, Path]):
+    def __init__(self, html_path: Optional[Union[str, Path]], xml_path: Optional[Union[str, Path]] = None):
         """
-        Initialize the extractor with the path to the HTML file.
+        Initialize the extractor with the path to the HTML file and optional XML file.
         
         Args:
-            html_path: Path to the HTML file containing ELCA data
+            html_path: Path to the HTML file containing ELCA data (can be None for XML-only parsing)
+            xml_path: Optional path to the XML project file containing layer thickness data
         """
-        self.html_path = Path(html_path)
+        self.html_path = Path(html_path) if html_path else None
+        self.xml_path = Path(xml_path) if xml_path else None
         self.soup = None
-        print('[eLCA-parser] Loading HTML file...')
-        self._load_html()
+        self.xml_root = None
+        self.xml_layer_data = {}  # Store layer thickness data from XML
+        
+        # Load HTML file if path is provided
+        if self.html_path:
+            print('[eLCA-parser] Loading HTML file...')
+            self._load_html()
+        else:
+            print('[eLCA-parser] No HTML file provided - XML-only mode')
+        
+        # Load XML file if path is provided
+        if self.xml_path and self.xml_path.exists():
+            print('[eLCA-parser] Loading XML project file...')
+            self._load_xml()
+            self._extract_layer_data_from_xml()
+        elif self.xml_path:
+            print(f'[eLCA-parser] Warning: XML file not found: {self.xml_path}')
+        else:
+            print('[eLCA-parser] No XML project file provided - layer thickness data will not be available')
         
     def _load_html(self) -> None:
         """Load and parse the HTML file."""
@@ -290,3 +310,165 @@ class ELCAComponentExtractor:
         df = self.get_bauteil_summary_dataframe()
         df.to_csv(output_path, index=False, encoding='utf-8')
         print(f"Bauteil summary saved to {output_path}")
+    
+    def _load_xml(self) -> None:
+        """Load and parse the XML project file."""
+        if not self.xml_path or not self.xml_path.exists():
+            raise FileNotFoundError(f"XML file not found: {self.xml_path}")
+        
+        try:
+            tree = ET.parse(self.xml_path)
+            self.xml_root = tree.getroot()
+            print(f'[eLCA-parser] Successfully loaded XML project file: {self.xml_path}')
+            
+        except ET.ParseError as e:
+            print(f'[eLCA-parser] Error parsing XML file: {e}')
+            self.xml_root = None
+            raise Exception(f"XML parsing error: {e}")
+        
+        except Exception as e:
+            print(f'[eLCA-parser] Error loading XML file: {e}')
+            self.xml_root = None
+            raise Exception(f"Error loading XML file: {e}")
+
+    def _extract_layer_data_from_xml(self) -> None:
+        """Extract layer thickness data from XML file."""
+        # if not self.xml_root:
+        #     return
+        ELCA_NS = 'https://www.bauteileditor.de'
+        print(f'[eLCA-parser] inspecting DOM {self.xml_root}')
+        try:
+            # Find all elements in the XML at any depth using iter()
+            el = self.xml_root.iter(f'{{{ELCA_NS}}}element')
+            print(f'[eLCA-parser] Found{list(el)} element tags in XML')
+            elements_found = list(self.xml_root.iter(f'{{{ELCA_NS}}}element'))
+            if not elements_found:
+                print('[eLCA-parser] No element tags found in XML')
+                return
+            print(f'[eLCA-parser] Found {len(elements_found)} element tags in XML')
+            
+            for element in elements_found:
+                element_uuid = element.get('uuid')
+                din276_code = element.get('din276Code')
+                quantity = element.get('quantity')
+                ref_unit = element.get('refUnit')
+                
+                if not element_uuid:
+                    continue  # Skip elements without UUID
+                
+                print(f'[eLCA-parser] Processing element UUID: {element_uuid}')
+                
+                # Extract element name from CDATA in elementInfo/name
+                element_name = ""
+                element_info = element.find(f'{{{ELCA_NS}}}elementInfo')
+                if element_info is not None:
+                    name_elem = element_info.find(f'{{{ELCA_NS}}}name')
+                    if name_elem is not None and name_elem.text:
+                        element_name = name_elem.text.strip()
+                        print(f'[eLCA-parser] Found element: {element_name}')
+                
+                # Extract element description from CDATA in elementInfo/description
+                element_description = ""
+                if element_info is not None:
+                    desc_elem = element_info.find(f'{{{ELCA_NS}}}description')
+                    if desc_elem is not None and desc_elem.text:
+                        element_description = desc_elem.text.strip()
+                
+                # Find all components within this element at any depth
+                components_found = list(element.iter(f'{{{ELCA_NS}}}component'))
+                print(f'[eLCA-parser] Found {len(components_found)} components in element {element_uuid}')
+                
+                for component in components_found:
+                    component_uuid = component.get('uuid')
+                    is_layer = component.get('isLayer')
+                    layer_size = component.get('layerSize')
+                    layer_position = component.get('layerPosition')
+                    layer_ratio = component.get('layerAreaRatio')
+                    
+                    # Extract additional attributes from the component tag
+                    process_config_uuid = component.get('processConfigUuid')
+                    process_config_name = component.get('processConfigName')
+                    life_time = component.get('lifeTime')
+                    life_time_delay = component.get('lifeTimeDelay')
+                    calc_lca = component.get('calcLca')
+                    is_extant = component.get('isExtant')
+                    layer_length = component.get('layerLength')
+                    layer_width = component.get('layerWidth')
+                    component_name = process_config_name
+                    print(f'[eLCA-parser] Processing component UUID: {component_uuid}, isLayer: {is_layer}, layerSize: {layer_size}, processConfigName: {process_config_name}')
+                    
+                    # Only process components marked as layers with a size
+                    try:
+                        thickness = float(layer_size) if layer_size else 0.0
+                        
+                        # Extract component name from CDATA in componentInfo/name
+                        
+                        # Store layer data
+                        layer_key = f"{element_uuid}_{component_uuid}" if component_uuid else f"{element_uuid}_{component_name}"
+                        
+                        self.xml_layer_data[layer_key] = {
+                            'element_uuid': element_uuid,
+                            'element_name': element_name,
+                            'element_description': element_description,
+                            'element_din276': din276_code,
+                            'element_quantity': quantity,
+                            'element_ref_unit': ref_unit,
+                            'component_name': component_name,
+                            'layer_thickness': thickness, # This is layer_size converted to float
+                            'component_uuid': component_uuid, # This is the component's uuid
+                            'is_layer': is_layer,
+                            # Add newly extracted attributes
+                            'process_config_uuid': process_config_uuid,
+                            'process_config_name': process_config_name,
+                            'life_time': life_time,
+                            'life_time_delay': life_time_delay,
+                            'calc_lca': calc_lca,
+                            'is_extant': is_extant,
+                            'layer_position': layer_position,
+                            'layer_ratio': layer_ratio,
+                            'layer_length': layer_length,
+                            'layer_width': layer_width
+                        }
+                        
+                        # Also store by component name for easier matching (if name exists)
+                        # Note: This might overwrite if component names are not unique across elements
+                        if component_name:
+                            self.xml_layer_data[component_name] = self.xml_layer_data[layer_key]
+                        
+                        print(f'[eLCA-parser] Found layer: {component_name} with thickness {thickness} mm in element: {element_name}')
+                        
+                    except ValueError:
+                        print(f'[eLCA-parser] Invalid layer size value: {layer_size} for component {component_uuid}')
+            
+            print(f'[eLCA-parser] Extracted {len(self.xml_layer_data)} entries from XML')
+            
+        except Exception as e:
+            print(f'[eLCA-parser] Error extracting layer data from XML: {e}')
+            import traceback
+            traceback.print_exc()
+
+    def get_layer_thickness_summary(self) -> Dict[str, Any]:
+        """Get a summary of layer thickness data from XML."""
+        if not self.xml_layer_data:
+            return {'total_elements': 0, 'total_layers': 0, 'total_components': 0}
+        
+        # Count unique elements and layers
+        unique_elements = set()
+        layer_count = 0
+        component_count = 0
+        
+        for key, data in self.xml_layer_data.items():
+            if isinstance(data, dict):
+                if data.get('element_uuid'):
+                    unique_elements.add(data['element_uuid'])
+                if data.get('is_layer', False):
+                    layer_count += 1
+                else:
+                    component_count += 1
+        
+        return {
+            'total_elements': len(unique_elements),
+            'total_layers': layer_count,
+            'total_components': component_count,
+            'total_entries': len(self.xml_layer_data)
+        }
