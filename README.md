@@ -9,7 +9,7 @@ Ermöglicht den Import von Projekt- und Ergebnissdateien des BBSR Bauteileditors
 ## Funktionen
 - Laden von Projektdateien  
 - Laden von Massenbilanzen gespeichtet als HTML Seite  
-- Erzeugung und Import von IFC-Materialen und Materialien-Gruppen (IfcMaterial und IfcMaterialLayerSet)
+- Erzeugung und Import von IFC-Materialen und Materialien-Gruppen (IfcMaterial und IfcMaterialLayerSet) mit Ökobaudat Referenzierung
 
 ## Voraussetzungen
 - [Bonsai](https://bonsai.org) Version 0.8.3
